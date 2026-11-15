@@ -35,12 +35,14 @@
   button:hover { border-color: var(--muted); }
   label.tog { color: var(--text2); white-space: nowrap; }
   .model { border: 1px solid var(--line); border-radius: 8px; padding: 10px; margin-bottom: 8px; }
-  .model.target { border-color: var(--c); }
+  .model.sup { background: var(--bg); }
+  .mhead b { font-size: 14px; }
+  .sub { font-size: 13px; color: var(--text2); margin: 10px 0 2px; }
+  .kl { font-size: 15px; margin-top: 2px; }
   .row { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; }
   .row + .row { margin-top: 8px; }
   .stat { display: flex; flex-direction: column; align-items: center; font-size: 12px; color: var(--muted); }
   .stat input { color: var(--text); font-size: 15px; margin-top: 2px; }
-  .mname { flex: 1; min-width: 8em; }
   .need { font-size: 13px; color: var(--text2); margin-top: 6px; }
   .x { margin-left: auto; padding: 2px 8px; color: var(--muted); }
   .results { grid-column: 1 / -1; }
@@ -83,7 +85,7 @@
       <li>Spear or pike support: adds 1 die to the duel and 1 strike. Supporters can't be hit (the Monster exception isn't included yet).</li>
       <li>Banner: each side can re-roll one duel die once, and only does it when that improves its chance to win. With 2 or more dice it re-rolls a die that isn't its best, which can't hurt. With 1 die on a tie that goes to a roll-off, it weighs re-rolling against the roll-off (tied on 1–3: re-roll; on 4–6: keep and roll off; an elf weapon shifts this). If both sides could use a banner, a 50/50 coin decides who chooses first.</li>
       <li>Trapped: if a trapped side loses, the winners strike twice as many times.</li>
-      <li>Every strike goes at the one model marked "Gets hit". A roll of 1 always fails to wound.</li>
+      <li>The results show each enemy model in front separately, as if all strikes went at that one. Spear and pike supporters can't be hit. A roll of 1 always fails to wound.</li>
       <li>Fate: each wound can be saved on a 4+, one roll per Fate point, until the model runs out.</li>
       <li>Might is not included yet. All numbers are exact odds, worked out from every possible roll.</li>
     </ul>
@@ -92,25 +94,31 @@
 <script src="engine.js"></script>
 <script>
 'use strict';
-const blank = (o = {}) => ({ role: 'front', name: '', fight: 3, attacks: 1, strength: 3, defence: 4, wounds: 1, fate: 0,
+const blank = (o = {}) => ({ role: 'front', fight: 3, attacks: 1, strength: 3, defence: 4, wounds: 1, fate: 0,
   duelMod: 0, woundMod: 0, twoHanded: false, shielding: false, elf: false, ...o });
 const DEFAULT = {
-  a: { name: 'Good', banner: false, trapped: false, target: 0, models: [
-    blank({ name: 'Captain', fight: 5, attacks: 2, strength: 4, defence: 6, wounds: 2, fate: 1 }),
-    blank({ name: 'Spearman', role: 'support', fight: 4, strength: 3, defence: 5 }) ] },
-  b: { name: 'Evil', banner: false, trapped: false, target: 0, models: [
-    blank({ name: 'Orc', fight: 3, strength: 3, defence: 5 }),
-    blank({ name: 'Orc with axe', fight: 3, strength: 3, defence: 4, twoHanded: true }) ] },
+  a: { name: 'Good', banner: false, trapped: false, models: [
+    blank({ fight: 5, attacks: 2, strength: 4, defence: 6, wounds: 2, fate: 1 }),
+    blank({ role: 'support', fight: 4, strength: 3 }) ] },
+  b: { name: 'Evil', banner: false, trapped: false, models: [
+    blank({ fight: 3, strength: 3, defence: 5 }),
+    blank({ fight: 3, strength: 3, defence: 4, twoHanded: true }) ] },
 };
 
 let state;
 try { state = JSON.parse(decodeURIComponent(escape(atob(location.hash.slice(1))))); } catch (e) {}
 if (!state) try { state = JSON.parse(localStorage.getItem('mesbg-calc')); } catch (e) {}
 if (!state || !state.a || !state.b) state = structuredClone(DEFAULT);
+for (const k of ['a', 'b']) { // a side always needs someone in front
+  if (!state[k].models.some(m => m.role !== 'support')) state[k].models.unshift(blank());
+}
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const sideName = k => state[k].name || (k === 'a' ? 'Side 1' : 'Side 2');
-const modelName = (k, i) => state[k].models[i].name || `Model ${i + 1}`;
+const other = k => (k === 'a' ? 'b' : 'a');
+// Front models get numbers ("model 1"); supports are listed after them.
+const fronts = k => state[k].models.map((m, i) => i).filter(i => state[k].models[i].role !== 'support');
+const supports = k => state[k].models.map((m, i) => i).filter(i => state[k].models[i].role === 'support');
 
 function numIn(k, i, f, lab, min, max) {
   return `<label class="stat">${lab}<input type="number" data-k="${k}" data-i="${i}" data-f="${f}" value="${esc(state[k].models[i][f])}" min="${min}" max="${max}"></label>`;
@@ -119,10 +127,30 @@ function chk(k, i, f, lab) {
   return `<label class="tog"><input type="checkbox" data-k="${k}" data-i="${i}" data-f="${f}" ${state[k].models[i][f] ? 'checked' : ''}> ${lab}</label>`;
 }
 
+function card(k, i, title, canDelete) {
+  const m = state[k].models[i], sup = m.role === 'support';
+  return `<div class="model ${sup ? 'sup' : ''}">
+    <div class="row mhead"><b>${title}</b>
+      <button class="x" data-k="${k}" data-del="${i}" title="Remove" ${canDelete ? '' : 'disabled'}>✕</button></div>
+    <div class="row">
+      ${numIn(k, i, 'fight', 'Fight', 1, 10)}
+      ${!sup ? numIn(k, i, 'attacks', 'Attacks', 0, 10) : ''}
+      ${numIn(k, i, 'strength', 'Strength', 1, 10)}
+      ${!sup ? numIn(k, i, 'defence', 'Defence', 1, 10) + numIn(k, i, 'wounds', 'Wounds', 1, 20) + numIn(k, i, 'fate', 'Fate', 0, 6) : ''}
+      ${numIn(k, i, 'duelMod', 'Duel ±', -3, 3)}
+      ${numIn(k, i, 'woundMod', 'Wound ±', -3, 3)}
+    </div>
+    <div class="row">
+      ${chk(k, i, 'twoHanded', 'Two-handed')}
+      ${!sup ? chk(k, i, 'shielding', 'Shielding') : ''}
+      ${chk(k, i, 'elf', 'Elf weapon')}
+    </div>
+    <div class="need" data-need="${k}-${i}"></div>
+  </div>`;
+}
+
 function renderSide(k) {
-  const s = state[k];
-  const fronts = s.models.map((m, i) => i).filter(i => s.models[i].role !== 'support');
-  if (!fronts.includes(+s.target)) s.target = fronts[0] ?? 0;
+  const s = state[k], F = fronts(k), P = supports(k);
   const el = document.getElementById(k === 'a' ? 'sideA' : 'sideB');
   el.innerHTML = `
     <div class="side-head">
@@ -130,86 +158,76 @@ function renderSide(k) {
       <label class="tog"><input type="checkbox" data-k="${k}" data-sf="banner" ${s.banner ? 'checked' : ''}> Banner nearby</label>
       <label class="tog"><input type="checkbox" data-k="${k}" data-sf="trapped" ${s.trapped ? 'checked' : ''}> Trapped (can't back away)</label>
     </div>
-    ${s.models.map((m, i) => {
-      const sup = m.role === 'support';
-      const tgt = !sup && +s.target === i;
-      return `<div class="model ${tgt ? 'target' : ''}">
-        <div class="row">
-          <select data-k="${k}" data-i="${i}" data-f="role" aria-label="Role">
-            <option value="front" ${!sup ? 'selected' : ''}>In the fight</option>
-            <option value="support" ${sup ? 'selected' : ''}>Spear / pike support</option>
-          </select>
-          <input class="mname" data-k="${k}" data-i="${i}" data-f="name" value="${esc(m.name)}" placeholder="Model ${i + 1}" aria-label="Name">
-          ${!sup ? `<label class="tog"><input type="radio" name="tgt-${k}" data-k="${k}" data-i="${i}" data-f="target" ${tgt ? 'checked' : ''}> Gets hit</label>` : ''}
-          <button class="x" data-k="${k}" data-del="${i}" title="Remove this model" ${s.models.length < 2 ? 'disabled' : ''}>✕</button>
-        </div>
-        <div class="row">
-          ${numIn(k, i, 'fight', 'Fight', 1, 10)}
-          ${!sup ? numIn(k, i, 'attacks', 'Attacks', 0, 10) : ''}
-          ${numIn(k, i, 'strength', 'Strength', 1, 10)}
-          ${!sup ? numIn(k, i, 'defence', 'Defence', 1, 10) + numIn(k, i, 'wounds', 'Wounds', 1, 20) + numIn(k, i, 'fate', 'Fate', 0, 6) : ''}
-          ${numIn(k, i, 'duelMod', 'Duel ±', -3, 3)}
-          ${numIn(k, i, 'woundMod', 'Wound ±', -3, 3)}
-        </div>
-        <div class="row">
-          ${chk(k, i, 'twoHanded', 'Two-handed')}
-          ${!sup ? chk(k, i, 'shielding', 'Shielding') : ''}
-          ${chk(k, i, 'elf', 'Elf weapon')}
-        </div>
-        <div class="need" data-need="${k}-${i}"></div>
-      </div>`;
-    }).join('')}
+    ${F.map((i, n) => card(k, i, F.length > 1 ? `Model ${n + 1}` : 'Model', F.length > 1)).join('')}
+    ${P.map((i, n) => card(k, i, P.length > 1 ? `Spear / pike support ${n + 1}` : 'Spear / pike support', true)).join('')}
     <div class="row">
       <button data-k="${k}" data-add="front">+ Add model</button>
-      <button data-k="${k}" data-add="support">+ Add spear support</button>
+      <button data-k="${k}" data-add="support">+ Add spear / pike support</button>
     </div>`;
 }
 
+const pct = v => (v * 100).toFixed(1) + '%';
+const enemyName = (k, j) => `${sideName(k)} ${fronts(k).length > 1 ? `model ${j + 1}` : 'model'}`;
+
 function bars(k, r, idx) {
-  const other = k === 'a' ? 'b' : 'a';
-  const oState = state[other];
-  const tgt = oState.models[oState.target] || oState.models[0];
-  const tName = tgt.name || 'their model';
-  const W = Math.max(1, +tgt.wounds || 1);
-  const N = r.runs, dist = r.dist[idx];
-  const rows = [{ t: 'Loses the fight', v: r.wins[1 - idx] / N }];
-  for (let w = 0; w < W; w++) rows.push({ t: w === 0 ? 'Wins, no wounds' : `Wins, ${w} wound${w > 1 ? 's' : ''}`, v: dist[w] / N, w });
-  rows.push({ t: `Kills ${tName}`, v: dist[W] / N, w: W });
-  const max = Math.max(...rows.map(x => x.v), 0.01);
-  const atLeast = w => dist.slice(w).reduce((a, b) => a + b, 0) / N;
-  return `<h3>${esc(sideName(k))} attacking ${esc(tName)}</h3>` + rows.map(x => {
-    const tip = x.w ? `At least ${x.w} wound${x.w > 1 ? 's' : ''}: ${(atLeast(x.w) * 100).toFixed(1)}%` : '';
-    return `<div class="bar" title="${tip}"><span class="t">${esc(x.t)}</span>
+  const o = other(k);
+  const rowsFor = (vs, j) => {
+    const W = vs.wounds, dist = vs.dist;
+    const rows = [];
+    for (let w = 0; w < W; w++) rows.push({ t: w === 0 ? 'Wins, no wounds' : `Wins, ${w} wound${w > 1 ? 's' : ''}`, v: dist[w], w });
+    rows.push({ t: 'Wins and kills', v: dist[W], w: W });
+    return rows;
+  };
+  const blocks = r.vs[idx].map(rowsFor);
+  const lose = r.wins[1 - idx];
+  const max = Math.max(lose, ...blocks.flat().map(x => x.v), 0.01);
+  const bar = (x, tip = '') => `<div class="bar" title="${tip}"><span class="t">${esc(x.t)}</span>
       <div class="track"><div class="fill" style="width:${(x.v / max * 100).toFixed(2)}%"></div></div>
-      <span class="v">${(x.v * 100).toFixed(1)}%</span></div>`;
-  }).join('');
+      <span class="v">${pct(x.v)}</span></div>`;
+  return `<h3>${esc(sideName(k))} attacking</h3>` + bar({ t: 'Loses the fight', v: lose }) +
+    blocks.map((rows, j) => {
+      const dist = r.vs[idx][j].dist;
+      const atLeast = w => dist.slice(w).reduce((a, b) => a + b, 0);
+      return `<div class="sub">All strikes at ${esc(enemyName(o, j))}</div>` +
+        rows.map(x => bar(x, `At least ${x.w || 0} wound${x.w === 1 ? '' : 's'}: ${pct(atLeast(x.w))}`)).join('');
+    }).join('');
+}
+
+function killTile(k, r, idx) {
+  const o = other(k), list = r.vs[idx];
+  if (list.length === 1) return `<div class="big">${pct(list[0].kill)}</div><div class="lab">${esc(sideName(k))} kills ${esc(enemyName(o, 0))}</div>`;
+  return `<div class="lab">${esc(sideName(k))} kills, if all strikes go at:</div>` +
+    list.map((v, j) => `<div class="kl">${esc(sideName(o))} model ${j + 1}: <b>${pct(v.kill)}</b></div>`).join('');
 }
 
 function recompute() {
   const r = MESBG.calculate({ a: state.a, b: state.b });
-  const N = r.runs, pct = v => (v * 100).toFixed(1) + '%';
   for (const [idx, k] of [[0, 'a'], [1, 'b']]) {
+    const o = other(k), many = fronts(o).length > 1;
     state[k].models.forEach((m, i) => {
       const el = document.querySelector(`[data-need="${k}-${i}"]`);
-      if (el) el.textContent = (m.role === 'support' ? 'Adds 1 die and 1 strike. ' : '') +
-        (r.needs[idx][i].startsWith('shield') ? 'Shielding: makes no strikes.' : `To wound: ${r.needs[idx][i]}`);
+      if (!el) return;
+      const needs = r.needs[idx][i];
+      let txt = needs[0] === 'shielding' ? 'Shielding: makes no strikes.'
+        : many ? 'To wound: ' + needs.map((n, j) => `model ${j + 1} ${n}`).join(', ') : `To wound: ${needs[0]}`;
+      if (m.role === 'support') txt = 'Adds 1 die and 1 strike. Can\'t be hit. ' + txt;
+      el.textContent = txt;
     });
   }
-  const tName = k => { const s = state[k]; return (s.models[s.target] || s.models[0]).name || 'their model'; };
   const warn = [0, 1].filter(i => r.shieldBlocked[i]).map(i => `${esc(sideName(i ? 'b' : 'a'))} can't shield while a spear or pike supports it, so shielding is ignored.`);
   document.getElementById('results').innerHTML = `
     <div class="tiles">
-      <div class="tile" style="--c: var(--a)"><div class="big">${pct(r.wins[0] / N)}</div><div class="lab">${esc(sideName('a'))} wins the fight</div></div>
-      <div class="tile" style="--c: var(--a)"><div class="big">${pct(r.kills[0] / N)}</div><div class="lab">${esc(sideName('a'))} kills ${esc(tName('b'))}</div></div>
-      <div class="tile" style="--c: var(--b)"><div class="big">${pct(r.wins[1] / N)}</div><div class="lab">${esc(sideName('b'))} wins the fight</div></div>
-      <div class="tile" style="--c: var(--b)"><div class="big">${pct(r.kills[1] / N)}</div><div class="lab">${esc(sideName('b'))} kills ${esc(tName('a'))}</div></div>
+      <div class="tile" style="--c: var(--a)"><div class="big">${pct(r.wins[0])}</div><div class="lab">${esc(sideName('a'))} wins the fight</div></div>
+      <div class="tile" style="--c: var(--a)">${killTile('a', r, 0)}</div>
+      <div class="tile" style="--c: var(--b)"><div class="big">${pct(r.wins[1])}</div><div class="lab">${esc(sideName('b'))} wins the fight</div></div>
+      <div class="tile" style="--c: var(--b)">${killTile('b', r, 1)}</div>
     </div>
     <div class="split">
       <div style="--c: var(--a)">${bars('a', r, 0)}</div>
       <div style="--c: var(--b)">${bars('b', r, 1)}</div>
     </div>
     ${warn.map(w => `<div class="warn">${w}</div>`).join('')}
-    <div class="note">Top dice tied in ${pct((r.tieFight + r.tieRoll) / N)} of fights: ${pct(r.tieFight / N)} settled by Fight, ${pct(r.tieRoll / N)} by a roll-off.
+    <div class="note">Top dice tied in ${pct(r.tieFight + r.tieRoll)} of fights: ${pct(r.tieFight)} settled by Fight, ${pct(r.tieRoll)} by a roll-off.
       <button id="share" style="margin-left:8px">Copy link to this matchup</button>
       <button id="reset">Reset</button></div>`;
   const enc = btoa(unescape(encodeURIComponent(JSON.stringify(state))));
@@ -226,22 +244,15 @@ document.addEventListener('input', e => {
   if (!k) return;
   if (t.dataset.sf) { state[k][t.dataset.sf] = t.type === 'checkbox' ? t.checked : t.value; later(); return; }
   const i = +t.dataset.i, f = t.dataset.f;
-  if (f === 'target') { state[k].target = i; renderSide(k); recompute(); return; }
-  state[k].models[i][f] = t.type === 'checkbox' ? t.checked : t.type === 'number' ? (t.value === '' ? '' : +t.value) : t.value;
-  if (f === 'role') { renderSide(k); recompute(); return; }
+  state[k].models[i][f] = t.type === 'checkbox' ? t.checked : (t.value === '' ? '' : +t.value);
   later();
 });
 document.addEventListener('click', e => {
   const t = e.target;
-  if (t.dataset.add) { state[t.dataset.k].models.push(blank({ role: t.dataset.add })); renderSide(t.dataset.k); recompute(); }
-  else if (t.dataset.del !== undefined) {
-    const s = state[t.dataset.k], i = +t.dataset.del;
-    s.models.splice(i, 1);
-    if (+s.target > i) s.target--;
-    renderSide(t.dataset.k); recompute();
-  } else if (t.id === 'share') {
-    navigator.clipboard.writeText(location.href).then(() => { t.textContent = 'Link copied'; });
-  } else if (t.id === 'reset') { state = structuredClone(DEFAULT); renderAll(); }
+  if (t.dataset.add) { state[t.dataset.k].models.push(blank({ role: t.dataset.add })); renderAll(); }
+  else if (t.dataset.del !== undefined) { state[t.dataset.k].models.splice(+t.dataset.del, 1); renderAll(); }
+  else if (t.id === 'share') navigator.clipboard.writeText(location.href).then(() => { t.textContent = 'Link copied'; });
+  else if (t.id === 'reset') { state = structuredClone(DEFAULT); renderAll(); }
 });
 renderAll();
 </script>

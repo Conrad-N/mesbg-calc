@@ -51,7 +51,7 @@
     const front = models.filter(m => !m.support);
     const target = front[clamp(num(side.target), 0, Math.max(0, front.length - 1))] || models[0];
     return {
-      models, target, trapped: !!side.trapped, banner: !!side.banner,
+      models, front: front.length ? front : [models[0]], target, trapped: !!side.trapped, banner: !!side.banner,
       fight: Math.max(...models.map(m => m.fight)),
       elf: models.some(m => m.elf && !m.shielding), // shielding loses the elf tie-break
     };
@@ -152,8 +152,8 @@
     return p;
   }
   // Distribution of unsaved wounds (capped at the target's Wounds) when side W wins.
-  function woundDist(W, Lo) {
-    const tgt = Lo.target, mult = Lo.trapped ? 2 : 1;
+  function woundDist(W, Lo, tgt = Lo.target) {
+    const mult = Lo.trapped ? 2 : 1;
     let hits = [1]; // hits[k] = P(k successful strikes)
     for (const m of W.models) {
       if (m.shielding) continue;
@@ -191,11 +191,17 @@
     const d = duel(S);
     const wins = [d.win0, 1 - d.win0];
     const dist = [0, 1].map(i => woundDist(S[i], S[1 - i]).map(p => p * wins[i]));
+    // Same thing against every enemy front model, as if all strikes went at it.
+    const vs = [0, 1].map(i => S[1 - i].front.map(t => {
+      const d = woundDist(S[i], S[1 - i], t).map(p => p * wins[i]);
+      return { dist: d, kill: d[d.length - 1], wounds: t.wounds };
+    }));
     return {
-      runs: 1, wins, tieFight: d.tieFight, tieRoll: d.tieRoll, dist,
+      runs: 1, wins, tieFight: d.tieFight, tieRoll: d.tieRoll, dist, vs,
       kills: dist.map(x => x[x.length - 1]),
-      needs: [0, 1].map(i => S[i].models.map(m =>
-        m.shielding ? 'shielding — no strikes' : needLabel(woundNeed(m.strength, S[1 - i].target.defence), m.woundMod))),
+      // needs[side][model][enemy front model] = what it needs to wound
+      needs: [0, 1].map(i => S[i].models.map(m => S[1 - i].front.map(t =>
+        m.shielding ? 'shielding' : needLabel(woundNeed(m.strength, t.defence), m.woundMod)))),
       shieldBlocked: [0, 1].map(i => S[i].models.some(m => m.shield && !m.shielding && !m.support)),
     };
   }
