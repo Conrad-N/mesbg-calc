@@ -187,6 +187,150 @@
     return dist;
   }
 
+  // ---- Strikes with several enemy models: best play ------------------------
+  // The winner picks one model at a time. That model's strikes can be split across
+  // any enemy front models (doubled strikes stay in pairs), get rolled, Fate is
+  // rolled, then the next model goes. We search every order and split and keep the
+  // plan that kills the most enemy models on average (then: most wounds).
+  // Enemy state per model: [wounds taken, Fate left]. Dead when taken >= Wounds.
+  function strikePhase(Wside, Lo) {
+    const mult = Lo.trapped ? 2 : 1;
+    const T = Lo.front;
+    // Group identical strikers so their order doesn't need searching twice.
+    const gmap = new Map();
+    for (const m of Wside.models) {
+      if (m.shielding || m.strikes <= 0) continue;
+      const k = `${m.strength}|${m.woundMod}|${m.strikes}`;
+      if (!gmap.has(k)) gmap.set(k, { units: m.strikes, p: T.map(t => strikeChance(woundNeed(m.strength, t.defence), m.woundMod)), n: 0 });
+      gmap.get(k).n++;
+    }
+    const G = [...gmap.values()];
+    const dead = (j, s) => s[0] >= T[j].wounds;
+    // Fate after k wounds land on model j in state s -> [[state, prob]...]
+    const fateMemo = new Map();
+    function afterWounds(j, s, k) {
+      const key = `${j}|${s}|${k}`;
+      if (fateMemo.has(key)) return fateMemo.get(key);
+      let st = new Map([[`${s[0]},${s[1]}`, 1]]);
+      for (let w = 0; w < k; w++) {
+        const next = new Map();
+        const add = (t, f, v) => { const kk = `${t},${f}`; next.set(kk, (next.get(kk) || 0) + v); };
+        for (const [kk, v] of st) {
+          const [t, f] = kk.split(',').map(Number);
+          if (t >= T[j].wounds) { add(t, f, v); continue; }
+          for (let i = 1; i <= f; i++) add(t, f - i, v * 0.5 ** i); // saved on the i-th Fate roll
+          add(t + 1, 0, v * 0.5 ** f);                              // not saved
+        }
+        st = next;
+      }
+      const res = [...st].map(([kk, v]) => [kk.split(',').map(Number), v]);
+      fateMemo.set(key, res);
+      return res;
+    }
+    // u strike units from group g at model j in state s -> [[state, prob]...]
+    const hitMemo = new Map();
+    function hitTarget(g, j, s, u) {
+      const key = `${g}|${j}|${s}|${u}`;
+      if (hitMemo.has(key)) return hitMemo.get(key);
+      const n = u * mult, p = G[g].p[j];
+      const out = new Map();
+      let c = 1; // binomial coefficient
+      for (let h = 0; h <= n; h++) {
+        if (h > 0) c = c * (n - h + 1) / h;
+        const ph = c * p ** h * (1 - p) ** (n - h);
+        if (ph < 1e-15) continue;
+        for (const [ns, v] of afterWounds(j, s, h)) {
+          const kk = `${ns[0]},${ns[1]}`;
+          out.set(kk, (out.get(kk) || 0) + ph * v);
+        }
+      }
+      const res = [...out].map(([kk, v]) => [kk.split(',').map(Number), v]);
+      hitMemo.set(key, res);
+      return res;
+    }
+    // Every way to split u units across the given targets.
+    function* splits(u, targets) {
+      if (targets.length === 1) { yield [u]; return; }
+      for (let a = u; a >= 0; a--) for (const rest of splits(u - a, targets.slice(1))) yield [a, ...rest];
+    }
+    // Outcome distribution of group g striking with split `alloc` over `alive`.
+    let work = 0;
+    const LIMIT = 6e5; // outcome combinations; past this the full search stops
+    function outcomes(g, ts, alive, alloc) {
+      let dist = [[ts, 1]];
+      alive.forEach((j, x) => {
+        if (!alloc[x]) return;
+        const res = hitTarget(g, j, ts[j], alloc[x]);
+        const next = [];
+        for (const [st, p] of dist) for (const [ns, q] of res) {
+          const nst = st.slice(); nst[j] = ns; next.push([nst, p * q]);
+        }
+        work += next.length;
+        dist = next;
+      });
+      return dist;
+    }
+    const memo = new Map();
+    const keyOf = (cnt, ts) => cnt.join(',') + '|' + ts.map(s => s.join('.')).join(',');
+    const better = (a, b) => a[0] > b[0] + 1e-12 || (Math.abs(a[0] - b[0]) <= 1e-12 && a[1] > b[1] + 1e-12);
+    // Expected [kills, wounds] at the end, playing as well as possible from here.
+    // greedy = true: judge each choice only by what it does right away (used when
+    // the fight is too big to search fully).
+    const endValue = ts => [ts.filter((s, j) => dead(j, s)).length, ts.reduce((a, s, j) => a + Math.min(s[0], T[j].wounds), 0)];
+    let greedy = false;
+    function V(cnt, ts) {
+      const key = keyOf(cnt, ts);
+      if (memo.has(key)) return memo.get(key).v;
+      if (!greedy && work > LIMIT) throw new Error('too big');
+      const alive = T.map((t, j) => j).filter(j => !dead(j, ts[j]));
+      if (!alive.length || cnt.every(c => c === 0)) {
+        const v = [ts.filter((s, j) => dead(j, s)).length, ts.reduce((a, s, j) => a + Math.min(s[0], T[j].wounds), 0)];
+        memo.set(key, { v }); return v;
+      }
+      let best = null, choice = null;
+      for (let g = 0; g < G.length; g++) {
+        if (!cnt[g]) continue;
+        const nc = cnt.slice(); nc[g]--;
+        for (const alloc of splits(G[g].units, alive)) {
+          const v = [0, 0];
+          for (const [nts, p] of outcomes(g, ts, alive, alloc)) {
+            const w = greedy ? endValue(nts) : V(nc, nts); v[0] += p * w[0]; v[1] += p * w[1];
+          }
+          if (!best || better(v, best)) { best = v; choice = { g, alloc, alive }; }
+        }
+      }
+      memo.set(key, { v: best, choice });
+      return best;
+    }
+    const cnt0 = G.map(g => g.n), ts0 = T.map(t => [0, t.fate]);
+    try { V(cnt0, ts0); } catch (e) { greedy = true; memo.clear(); }
+    // Follow the best plan forward to get the full spread of results.
+    const killsDist = new Array(T.length + 1).fill(0);
+    const perTarget = T.map(t => new Array(t.wounds + 1).fill(0));
+    let layer = new Map([[keyOf(cnt0, ts0), { cnt: cnt0, ts: ts0, p: 1 }]]);
+    while (layer.size) {
+      const next = new Map();
+      for (const { cnt, ts, p } of layer.values()) {
+        if (greedy) V(cnt, ts); // work out this position's choice on the way
+        const m = memo.get(keyOf(cnt, ts));
+        if (!m.choice) {
+          killsDist[ts.filter((s, j) => dead(j, s)).length] += p;
+          ts.forEach((s, j) => { perTarget[j][Math.min(s[0], T[j].wounds)] += p; });
+          continue;
+        }
+        const { g, alloc, alive } = m.choice;
+        const nc = cnt.slice(); nc[g]--;
+        for (const [nts, q] of outcomes(g, ts, alive, alloc)) {
+          const k = keyOf(nc, nts);
+          const e = next.get(k);
+          if (e) e.p += p * q; else next.set(k, { cnt: nc, ts: nts, p: p * q });
+        }
+      }
+      layer = next;
+    }
+    return { killsDist, perTarget, states: memo.size, approx: greedy };
+  }
+
   function calculate(input) {
     const S = [prep(input.a), prep(input.b)];
     const d = duel(S);
@@ -197,8 +341,17 @@
       const d = woundDist(S[i], S[1 - i], t).map(p => p * wins[i]);
       return { dist: d, kill: d[d.length - 1], wounds: t.wounds };
     }));
+    // Best play against all enemy front models, scaled by the chance of winning.
+    const strikes = [0, 1].map(i => {
+      const sp = strikePhase(S[i], S[1 - i]);
+      return {
+        killsDist: sp.killsDist.map(p => p * wins[i]),     // [won & killed none, killed 1, ...]
+        perTarget: sp.perTarget.map(x => x.map(p => p * wins[i])), // [model][wounds taken]
+        states: sp.states, approx: sp.approx,
+      };
+    });
     return {
-      runs: 1, wins, tieFight: d.tieFight, tieRoll: d.tieRoll, dist, vs,
+      runs: 1, wins, tieFight: d.tieFight, tieRoll: d.tieRoll, dist, vs, strikes,
       kills: dist.map(x => x[x.length - 1]),
       // needs[side][model][enemy front model] = what it needs to wound
       needs: [0, 1].map(i => S[i].models.map(m => S[1 - i].front.map(t =>

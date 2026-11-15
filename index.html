@@ -65,6 +65,7 @@
   .note { color: var(--text2); font-size: 13px; margin-top: 12px; }
   details { grid-column: 1 / -1; color: var(--text2); }
   details li { margin: 3px 0; }
+  body.busy #resA, body.busy #resB { opacity: .45; transition: opacity .2s; }
   .warn { color: var(--b); font-size: 13px; margin-top: 6px; }
 </style>
 </head>
@@ -89,7 +90,7 @@
       <li>Spear or pike support: adds 1 die to the duel and 1 strike. Supporters can't be hit (the Monster exception isn't included yet).</li>
       <li>Banner: each side can re-roll one duel die once, and only does it when that improves its chance to win. With 2 or more dice it re-rolls a die that isn't its best, which can't hurt. With 1 die on a tie that goes to a roll-off, it weighs re-rolling against the roll-off (tied on 1–3: re-roll; on 4–6: keep and roll off; an elf weapon shifts this). If both sides could use a banner, a 50/50 coin decides who chooses first.</li>
       <li>Trapped: if a trapped side loses, the winners strike twice as many times.</li>
-      <li>The results show each enemy model in front separately, as if all strikes went at that one. Spear and pike supporters can't be hit. A roll of 1 always fails to wound.</li>
+      <li>Strikes: the winning side picks one model at a time. Its strikes can be split across any enemy models in front (doubled strikes stay in pairs), each using that model's Strength against that enemy's Defence. The dice are rolled, then the next model goes. The calculator picks the order and split that kills the most enemy models on average (then the most wounds). Spear and pike supporters can't be hit. A roll of 1 always fails to wound.</li>
       <li>Fate: each wound can be saved on a 4+, one roll per Fate point, until the model runs out.</li>
       <li>Might is not included yet. All numbers are exact odds, worked out from every possible roll.</li>
     </ul>
@@ -170,42 +171,45 @@ function renderSide(k) {
 }
 
 const pct = v => (v * 100).toFixed(1) + '%';
-const enemyName = (k, j) => (fronts(other(k)).length > 1 ? `enemy model ${j + 1}` : 'the enemy model');
 
 function bars(k, r, idx) {
-  const lose = r.wins[1 - idx];
-  const blocks = r.vs[idx].map(vs => {
-    const rows = [];
-    for (let w = 0; w < vs.wounds; w++) rows.push({ t: w === 0 ? 'Wins, no wounds' : `Wins, ${w} wound${w > 1 ? 's' : ''}`, v: vs.dist[w], w });
-    rows.push({ t: 'Wins and kills', v: vs.dist[vs.wounds], w: vs.wounds });
-    return rows;
-  });
-  const max = Math.max(lose, ...blocks.flat().map(x => x.v), 0.01);
-  const bar = (x, tip = '') => `<div class="bar" title="${tip}"><span class="t">${esc(x.t)}</span>
+  const st = r.strikes[idx], lose = r.wins[1 - idx];
+  const nT = st.perTarget.length;
+  const rows = [{ t: 'Loses the fight', v: lose }];
+  if (nT === 1) {
+    const d = st.perTarget[0], W = d.length - 1;
+    for (let w = 0; w < W; w++) rows.push({ t: w === 0 ? 'Wins, no wounds' : `Wins, ${w} wound${w > 1 ? 's' : ''}`, v: d[w] });
+    rows.push({ t: 'Wins and kills', v: d[W] });
+  } else {
+    st.killsDist.forEach((v, n) => rows.push({ t: n === 0 ? 'Wins, kills none' : n === nT ? `Wins, kills all ${nT}` : `Wins, kills ${n}`, v }));
+    rows.push({ head: 'Each enemy model' });
+    st.perTarget.forEach((d, j) => {
+      const W = d.length - 1;
+      for (let w = 1; w < W; w++) rows.push({ t: `Model ${j + 1} takes ${w} wound${w > 1 ? "s" : ""}`, v: d[w] });
+      rows.push({ t: `Model ${j + 1} dies`, v: d[W] });
+    });
+  }
+  const max = Math.max(...rows.filter(x => !x.head).map(x => x.v), 0.01);
+  return rows.map(x => x.head ? `<div class="sub">${x.head}</div>` :
+    `<div class="bar"><span class="t">${esc(x.t)}</span>
       <div class="track"><div class="fill" style="width:${(x.v / max * 100).toFixed(2)}%"></div></div>
-      <span class="v">${pct(x.v)}</span></div>`;
-  return bar({ t: 'Loses the fight', v: lose }) + blocks.map((rows, j) => {
-    const dist = r.vs[idx][j].dist;
-    const atLeast = w => dist.slice(w).reduce((a, b) => a + b, 0);
-    return `<div class="sub">All strikes at ${enemyName(k, j)}</div>` +
-      rows.map(x => bar(x, `At least ${x.w || 0} wound${x.w === 1 ? '' : 's'}: ${pct(atLeast(x.w))}`)).join('');
-  }).join('');
+      <span class="v">${pct(x.v)}</span></div>`).join('') +
+    (st.approx ? `<div class="note">Too many models to check every strike plan, so this uses a simpler one: each model picks the split that does the most right away. Perfect play might do slightly better.</div>` : '');
 }
 
 function killTile(k, r, idx) {
-  const list = r.vs[idx];
-  if (list.length === 1) return `<div class="big">${pct(list[0].kill)}</div><div class="lab">Kills the enemy model</div>`;
-  return `<div class="lab">Kills, if all strikes go at:</div>` +
-    list.map((v, j) => `<div class="kl">Enemy model ${j + 1}: <b>${pct(v.kill)}</b></div>`).join('');
+  const st = r.strikes[idx];
+  if (st.perTarget.length === 1) return `<div class="big">${pct(st.killsDist[1])}</div><div class="lab">Kills the enemy model</div>`;
+  const some = st.killsDist.slice(1).reduce((a, b) => a + b, 0);
+  return `<div class="big">${pct(some)}</div><div class="lab">Kills at least one enemy model</div>`;
 }
 
-function recompute() {
-  const r = MESBG.calculate({ a: state.a, b: state.b });
+function render(r) {
   for (const [idx, k] of [[0, 'a'], [1, 'b']]) {
     const many = fronts(other(k)).length > 1;
     state[k].models.forEach((m, i) => {
       const el = document.querySelector(`[data-need="${k}-${i}"]`);
-      if (!el) return;
+      if (!el || !r.needs[idx][i]) return;
       const needs = r.needs[idx][i];
       let txt = needs[0] === 'shielding' ? 'Shielding: makes no strikes.'
         : many ? 'To wound: ' + needs.map((n, j) => `enemy model ${j + 1} ${n}`).join(', ') : `To wound: ${needs[0]}`;
@@ -224,10 +228,34 @@ function recompute() {
     Top dice tied in ${pct(r.tieFight + r.tieRoll)} of fights: ${pct(r.tieFight)} settled by Fight, ${pct(r.tieRoll)} by a roll-off.
     <button id="share" style="margin-left:8px">Copy link to this matchup</button>
     <button id="reset">Reset</button>`;
+}
+
+// The math runs in a background worker so big fights don't freeze the page.
+// A newer change cancels an older calculation that's still running.
+let worker = null, jobId = 0, busyTimer;
+function startWorker() {
+  try {
+    worker = new Worker('worker.js');
+    worker.onmessage = e => {
+      if (e.data.id !== jobId) return;
+      clearTimeout(busyTimer); document.body.classList.remove('busy');
+      worker.busy = false; render(e.data.result);
+    };
+    worker.onerror = () => { worker = null; recompute(); }; // e.g. opened as a local file: run on the page instead
+  } catch (e) { worker = null; }
+}
+function recompute() {
+  const input = { a: state.a, b: state.b };
   const enc = btoa(unescape(encodeURIComponent(JSON.stringify(state))));
   history.replaceState(null, '', '#' + enc);
   localStorage.setItem('mesbg-calc', JSON.stringify(state));
+  if (!worker) { render(MESBG.calculate(input)); return; }
+  if (worker.busy) { worker.terminate(); startWorker(); if (!worker) { render(MESBG.calculate(input)); return; } }
+  jobId++; worker.busy = true;
+  clearTimeout(busyTimer); busyTimer = setTimeout(() => document.body.classList.add('busy'), 150);
+  worker.postMessage({ id: jobId, input });
 }
+startWorker();
 
 let timer;
 const later = () => { clearTimeout(timer); timer = setTimeout(recompute, 30); };

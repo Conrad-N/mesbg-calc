@@ -115,4 +115,18 @@ check('wound chart S1 vs D9 = none', +(woundNeed(1, 9) === null), 1, 0);
 { const r2 = calculate({ a: { models: [M({ fight: 3 })], fight: 6 }, b: { models: [M({ fight: 5 })], fight: 4 } });
   const d2 = duel(1, 1);
   check('side Fight value used for ties', r2.wins[0], d2.win + d2.tie); }
+// Strike plan with several enemy models. Numbers are divided by A's chance to win the duel.
+{ const one = (o) => calculate({ a: { models: [M({ attacks: 2, ...o })], fight: 9 }, b: { models: [M(), M()], fight: 1, ...(o.trapB || {}) } });
+  const cond = r => r.strikes[0].killsDist.map(x => x / r.wins[0]);
+  let k = cond(one({}));
+  check('A2 at 5+ vs two W1: splits, kills both', k[2], 1 / 9);
+  check('A2 at 5+ vs two W1: kills exactly one', k[1], 4 / 9);
+  k = cond(calculate({ a: { models: [M({ attacks: 1 })], fight: 9 }, b: { models: [M(), M()], fight: 1, trapped: true } }));
+  check('trapped: doubled pair stays on one target (never kills 2)', k[2], 0);
+  check('trapped: pair kills one', k[1], 1 - (2 / 3) ** 2);
+  // Strong striker S6 (3+ vs D4) and weak S3 (5+ vs D4), two W1 enemies. Adaptive best play:
+  // whatever order, each enemy gets hit by one; value can be checked by brute force.
+  const r3 = calculate({ a: { models: [M({ strength: 6 }), M({ strength: 3 })], fight: 9 }, b: { models: [M(), M()], fight: 1 } });
+  const k3 = cond(r3), e = k3[1] + 2 * k3[2];
+  check('S6 + S3 one strike each vs two W1: expected kills', e, 2 / 3 + 1 / 3); }
 console.log(fails ? `${fails} FAILED` : 'all passed');
