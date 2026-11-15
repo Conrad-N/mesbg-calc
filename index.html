@@ -44,7 +44,6 @@
   .stat { display: flex; flex-direction: column; align-items: center; font-size: 12px; color: var(--muted); }
   .stat input { color: var(--text); font-size: 15px; margin-top: 2px; }
   .need { font-size: 13px; color: var(--text2); margin-top: 6px; }
-  .x { margin-left: auto; padding: 2px 8px; color: var(--muted); }
   @media (max-width: 900px) { .inA { order: 1; } .resA { order: 2; } .inB { order: 3; } .resB { order: 4; } #shared { order: 5; } details { order: 6; } }
   .bars { margin-top: 10px; }
   #shared { grid-column: 1 / -1; margin-top: 0; }
@@ -65,7 +64,10 @@
   .note { color: var(--text2); font-size: 13px; margin-top: 12px; }
   details { grid-column: 1 / -1; color: var(--text2); }
   details li { margin: 3px 0; }
-  body.busy #resA, body.busy #resB { opacity: .45; transition: opacity .2s; }
+  .tools { margin-left: auto; display: flex; gap: 4px; }
+  .tools button { padding: 2px 8px; color: var(--text2); }
+  .tools button:disabled { opacity: .35; cursor: default; }
+  .hint { font-size: 13px; color: var(--text2); margin: -2px 0 8px; }
   .warn { color: var(--b); font-size: 13px; margin-top: 6px; }
 </style>
 </head>
@@ -89,8 +91,8 @@
       <li>Shielding: the model rolls twice its Attacks in the duel but makes no strikes if its side wins. Not allowed while a spear or pike supports the side.</li>
       <li>Spear or pike support: adds 1 die to the duel and 1 strike. Supporters can't be hit (the Monster exception isn't included yet).</li>
       <li>Banner: each side can re-roll one duel die once, and only does it when that improves its chance to win. With 2 or more dice it re-rolls a die that isn't its best, which can't hurt. With 1 die on a tie that goes to a roll-off, it weighs re-rolling against the roll-off (tied on 1–3: re-roll; on 4–6: keep and roll off; an elf weapon shifts this). If both sides could use a banner, a 50/50 coin decides who chooses first.</li>
-      <li>Trapped: if a trapped side loses, the winners strike twice as many times.</li>
-      <li>Strikes: the winning side picks one model at a time. Its strikes can be split across any enemy models in front (doubled strikes stay in pairs), each using that model's Strength against that enemy's Defence. The dice are rolled, then the next model goes. The calculator picks the order and split that kills the most enemy models on average (then the most wounds). Spear and pike supporters can't be hit. A roll of 1 always fails to wound.</li>
+      <li>Trapped / prone: if that side loses, the winners' strikes are doubled.</li>
+      <li>Strikes: the winning side's models strike in list order, top first, one strike at a time. Each strike goes at the top enemy model in front that's still alive, using the striker's Strength against that model's Defence. When it dies, the next strike goes at the next one down. Doubled strikes are rolled in pairs at the same target. Spear and pike supporters can't be hit. A roll of 1 always fails to wound.</li>
       <li>Fate: each wound can be saved on a 4+, one roll per Fate point, until the model runs out.</li>
       <li>Might is not included yet. All numbers are exact odds, worked out from every possible roll.</li>
     </ul>
@@ -121,7 +123,7 @@ for (const k of ['a', 'b']) { // a side always needs someone in front
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const other = k => (k === 'a' ? 'b' : 'a');
-// Front models get numbers ("model 1"); supports are listed after them.
+// Front models are numbered in list order ("model 1" is the top one).
 const fronts = k => state[k].models.map((m, i) => i).filter(i => state[k].models[i].role !== 'support');
 const supports = k => state[k].models.map((m, i) => i).filter(i => state[k].models[i].role === 'support');
 
@@ -133,10 +135,15 @@ function chk(k, i, f, lab) {
 }
 
 function card(k, i, title, canDelete) {
-  const m = state[k].models[i], sup = m.role === 'support';
+  const m = state[k].models[i], sup = m.role === 'support', last = state[k].models.length - 1;
   return `<div class="model ${sup ? 'sup' : ''}">
     <div class="row mhead"><b>${title}</b>
-      <button class="x" data-k="${k}" data-del="${i}" title="Remove" ${canDelete ? '' : 'disabled'}>✕</button></div>
+      <span class="tools">
+        <button data-k="${k}" data-move="-1" data-i="${i}" title="Move up" ${i === 0 ? 'disabled' : ''}>↑</button>
+        <button data-k="${k}" data-move="1" data-i="${i}" title="Move down" ${i === last ? 'disabled' : ''}>↓</button>
+        <button data-k="${k}" data-copy="${i}" title="Copy this model">Copy</button>
+        <button data-k="${k}" data-del="${i}" title="Remove" ${canDelete ? '' : 'disabled'}>✕</button>
+      </span></div>
     <div class="row">
       ${!sup ? numIn(k, i, 'attacks', 'Attacks', 0, 10) : ''}
       ${numIn(k, i, 'strength', 'Strength', 1, 10)}
@@ -155,15 +162,18 @@ function card(k, i, title, canDelete) {
 
 function renderSide(k) {
   const s = state[k], F = fronts(k), P = supports(k);
+  const title = i => s.models[i].role === 'support'
+    ? (P.length > 1 ? `Spear / pike support ${P.indexOf(i) + 1}` : 'Spear / pike support')
+    : (F.length > 1 ? `Model ${F.indexOf(i) + 1}` : 'Model');
   const el = document.getElementById(k === 'a' ? 'sideA' : 'sideB');
   el.innerHTML = `
     <div class="side-head">
       <label class="stat" title="The highest Fight value of anyone in this fight">Fight<input type="number" data-k="${k}" data-sf="fight" value="${esc(s.fight)}" min="1" max="10"></label>
       <label class="tog"><input type="checkbox" data-k="${k}" data-sf="banner" ${s.banner ? 'checked' : ''}> Banner nearby</label>
-      <label class="tog"><input type="checkbox" data-k="${k}" data-sf="trapped" ${s.trapped ? 'checked' : ''}> Trapped (can't back away)</label>
+      <label class="tog"><input type="checkbox" data-k="${k}" data-sf="trapped" ${s.trapped ? 'checked' : ''}> Trapped / prone</label>
     </div>
-    ${F.map((i, n) => card(k, i, F.length > 1 ? `Model ${n + 1}` : 'Model', F.length > 1)).join('')}
-    ${P.map((i, n) => card(k, i, P.length > 1 ? `Spear / pike support ${n + 1}` : 'Spear / pike support', true)).join('')}
+    <div class="hint">Order matters: if this side wins, its models strike top to bottom. If it loses, the enemy hits the top model first.</div>
+    ${s.models.map((m, i) => card(k, i, title(i), m.role === 'support' || F.length > 1)).join('')}
     <div class="row">
       <button data-k="${k}" data-add="front">+ Add model</button>
       <button data-k="${k}" data-add="support">+ Add spear / pike support</button>
@@ -193,8 +203,7 @@ function bars(k, r, idx) {
   return rows.map(x => x.head ? `<div class="sub">${x.head}</div>` :
     `<div class="bar"><span class="t">${esc(x.t)}</span>
       <div class="track"><div class="fill" style="width:${(x.v / max * 100).toFixed(2)}%"></div></div>
-      <span class="v">${pct(x.v)}</span></div>`).join('') +
-    (st.approx ? `<div class="note">Too many models to check every strike plan, so this uses a simpler one: each model picks the split that does the most right away. Perfect play might do slightly better.</div>` : '');
+      <span class="v">${pct(x.v)}</span></div>`).join('');
 }
 
 function killTile(k, r, idx) {
@@ -230,32 +239,12 @@ function render(r) {
     <button id="reset">Reset</button>`;
 }
 
-// The math runs in a background worker so big fights don't freeze the page.
-// A newer change cancels an older calculation that's still running.
-let worker = null, jobId = 0, busyTimer;
-function startWorker() {
-  try {
-    worker = new Worker('worker.js');
-    worker.onmessage = e => {
-      if (e.data.id !== jobId) return;
-      clearTimeout(busyTimer); document.body.classList.remove('busy');
-      worker.busy = false; render(e.data.result);
-    };
-    worker.onerror = () => { worker = null; recompute(); }; // e.g. opened as a local file: run on the page instead
-  } catch (e) { worker = null; }
-}
 function recompute() {
-  const input = { a: state.a, b: state.b };
   const enc = btoa(unescape(encodeURIComponent(JSON.stringify(state))));
   history.replaceState(null, '', '#' + enc);
   localStorage.setItem('mesbg-calc', JSON.stringify(state));
-  if (!worker) { render(MESBG.calculate(input)); return; }
-  if (worker.busy) { worker.terminate(); startWorker(); if (!worker) { render(MESBG.calculate(input)); return; } }
-  jobId++; worker.busy = true;
-  clearTimeout(busyTimer); busyTimer = setTimeout(() => document.body.classList.add('busy'), 150);
-  worker.postMessage({ id: jobId, input });
+  render(MESBG.calculate({ a: state.a, b: state.b }));
 }
-startWorker();
 
 let timer;
 const later = () => { clearTimeout(timer); timer = setTimeout(recompute, 30); };
@@ -273,6 +262,13 @@ document.addEventListener('click', e => {
   const t = e.target;
   if (t.dataset.add) { state[t.dataset.k].models.push(blank({ role: t.dataset.add })); renderAll(); }
   else if (t.dataset.del !== undefined) { state[t.dataset.k].models.splice(+t.dataset.del, 1); renderAll(); }
+  else if (t.dataset.copy !== undefined) {
+    const list = state[t.dataset.k].models, i = +t.dataset.copy;
+    list.splice(i + 1, 0, structuredClone(list[i])); renderAll();
+  } else if (t.dataset.move) {
+    const list = state[t.dataset.k].models, i = +t.dataset.i, j = i + +t.dataset.move;
+    if (j >= 0 && j < list.length) { [list[i], list[j]] = [list[j], list[i]]; renderAll(); }
+  }
   else if (t.id === 'share') navigator.clipboard.writeText(location.href).then(() => { t.textContent = 'Link copied'; });
   else if (t.id === 'reset') { state = structuredClone(DEFAULT); renderAll(); }
 });

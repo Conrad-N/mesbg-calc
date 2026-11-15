@@ -115,18 +115,25 @@ check('wound chart S1 vs D9 = none', +(woundNeed(1, 9) === null), 1, 0);
 { const r2 = calculate({ a: { models: [M({ fight: 3 })], fight: 6 }, b: { models: [M({ fight: 5 })], fight: 4 } });
   const d2 = duel(1, 1);
   check('side Fight value used for ties', r2.wins[0], d2.win + d2.tie); }
-// Strike plan with several enemy models. Numbers are divided by A's chance to win the duel.
-{ const one = (o) => calculate({ a: { models: [M({ attacks: 2, ...o })], fight: 9 }, b: { models: [M(), M()], fight: 1, ...(o.trapB || {}) } });
-  const cond = r => r.strikes[0].killsDist.map(x => x / r.wins[0]);
-  let k = cond(one({}));
-  check('A2 at 5+ vs two W1: splits, kills both', k[2], 1 / 9);
+// Strikes in list order, one at a time, at the top living enemy. Divided by A's chance to win.
+{ const cond = r => r.strikes[0].killsDist.map(x => x / r.wins[0]);
+  let k = cond(calculate({ a: { models: [M({ attacks: 2 })], fight: 9 }, b: { models: [M(), M()], fight: 1 } }));
+  check('A2 at 5+ vs two W1: kills both', k[2], 1 / 9);
   check('A2 at 5+ vs two W1: kills exactly one', k[1], 4 / 9);
   k = cond(calculate({ a: { models: [M({ attacks: 1 })], fight: 9 }, b: { models: [M(), M()], fight: 1, trapped: true } }));
-  check('trapped: doubled pair stays on one target (never kills 2)', k[2], 0);
-  check('trapped: pair kills one', k[1], 1 - (2 / 3) ** 2);
-  // Strong striker S6 (3+ vs D4) and weak S3 (5+ vs D4), two W1 enemies. Adaptive best play:
-  // whatever order, each enemy gets hit by one; value can be checked by brute force.
-  const r3 = calculate({ a: { models: [M({ strength: 6 }), M({ strength: 3 })], fight: 9 }, b: { models: [M(), M()], fight: 1 } });
-  const k3 = cond(r3), e = k3[1] + 2 * k3[2];
-  check('S6 + S3 one strike each vs two W1: expected kills', e, 2 / 3 + 1 / 3); }
+  check('trapped/prone: doubled pair stays on one target (never kills 2)', k[2], 0);
+  check('trapped/prone: pair kills one', k[1], 1 - (2 / 3) ** 2);
+  // Order matters: enemy 1 D6, enemy 2 D3, both W1. S6 vs D6 4+, S3 vs D6 6+, S6 vs D3 3+, S3 vs D3 4+.
+  const B = { models: [M({ defence: 6 }), M({ defence: 3 })], fight: 1 };
+  const per = r => r.strikes[0].perTarget.map(d => d[1] / r.wins[0]);
+  let pt = per(calculate({ a: { models: [M({ strength: 6 }), M({ strength: 3 })], fight: 9 }, b: B }));
+  check('strong first: enemy 1 dies', pt[0], 1 / 2 + 1 / 2 * 1 / 6);
+  check('strong first: enemy 2 dies', pt[1], 1 / 4);
+  pt = per(calculate({ a: { models: [M({ strength: 3 }), M({ strength: 6 })], fight: 9 }, b: B }));
+  check('weak first: enemy 1 dies', pt[0], 1 / 6 + 5 / 6 * 1 / 2);
+  check('weak first: enemy 2 dies', pt[1], 1 / 6 * 2 / 3);
+  // One enemy model: same answer as the plain "all strikes at it" calculation (incl. Fate and pairs).
+  const r1 = calculate({ a: { models: [M({ attacks: 3, strength: 4 }), M({ role: 'support' })], fight: 5 },
+    b: { models: [M({ wounds: 3, fate: 2, defence: 5 })], fight: 4, trapped: true } });
+  check('single enemy matches direct calculation', Math.max(...r1.strikes[0].perTarget[0].map((v, w) => Math.abs(v - r1.dist[0][w]))), 0); }
 console.log(fails ? `${fails} FAILED` : 'all passed');
