@@ -168,7 +168,7 @@ function renderSide(k) {
   const el = document.getElementById(k === 'a' ? 'sideA' : 'sideB');
   el.innerHTML = `
     <div class="side-head">
-      <label class="stat" title="The highest Fight value of anyone in this fight">Fight<input type="number" data-k="${k}" data-sf="fight" value="${esc(s.fight)}" min="1" max="10"></label>
+      <label class="stat" title="The highest Fight value of anyone in this fight">Fight value<input type="number" data-k="${k}" data-sf="fight" value="${esc(s.fight)}" min="1" max="10"></label>
       <label class="tog"><input type="checkbox" data-k="${k}" data-sf="banner" ${s.banner ? 'checked' : ''}> Banner nearby</label>
       <label class="tog"><input type="checkbox" data-k="${k}" data-sf="trapped" ${s.trapped ? 'checked' : ''}> Trapped / prone</label>
     </div>
