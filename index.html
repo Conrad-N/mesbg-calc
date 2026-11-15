@@ -45,9 +45,11 @@
   .stat input { color: var(--text); font-size: 15px; margin-top: 2px; }
   .need { font-size: 13px; color: var(--text2); margin-top: 6px; }
   .x { margin-left: auto; padding: 2px 8px; color: var(--muted); }
-  .results { grid-column: 1 / -1; }
-  .tiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
-  @media (max-width: 700px) { .tiles { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 900px) { .inA { order: 1; } .resA { order: 2; } .inB { order: 3; } .resB { order: 4; } #shared { order: 5; } details { order: 6; } }
+  .bars { margin-top: 10px; }
+  #shared { grid-column: 1 / -1; margin-top: 0; }
+  .side { border-top-width: 6px; }
+  .tiles { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
   .tile { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; border-left: 4px solid var(--c); }
   .tile .big { font-size: 28px; font-weight: 650; }
   .tile .lab { color: var(--text2); font-size: 13px; }
@@ -72,9 +74,11 @@
   <p>Odds for one fight in the Middle-earth Strategy Battle Game (2024 rules). Change any number and the results update.</p>
 </header>
 <main>
-  <section class="panel side" id="sideA" style="--c: var(--a)"></section>
-  <section class="panel side" id="sideB" style="--c: var(--b)"></section>
-  <section class="panel results" id="results"></section>
+  <section class="panel side inA" style="--c: var(--a)" aria-label="First side" id="sideA"></section>
+  <section class="panel side inB" style="--c: var(--b)" aria-label="Second side" id="sideB"></section>
+  <section class="panel side resA" style="--c: var(--a)" aria-label="First side results" id="resA"></section>
+  <section class="panel side resB" style="--c: var(--b)" aria-label="Second side results" id="resB"></section>
+  <section class="panel note" id="shared"></section>
   <details class="panel">
     <summary>Rules this calculator uses</summary>
     <ul>
@@ -115,7 +119,6 @@ for (const k of ['a', 'b']) { // a side always needs someone in front
 }
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const sideName = k => (k === 'a' ? 'Side 1' : 'Side 2');
 const other = k => (k === 'a' ? 'b' : 'a');
 // Front models get numbers ("model 1"); supports are listed after them.
 const fronts = k => state[k].models.map((m, i) => i).filter(i => state[k].models[i].role !== 'support');
@@ -154,7 +157,6 @@ function renderSide(k) {
   const el = document.getElementById(k === 'a' ? 'sideA' : 'sideB');
   el.innerHTML = `
     <div class="side-head">
-      <span class="sname">${sideName(k)}</span>
       <label class="stat" title="The highest Fight value of anyone in this fight">Fight<input type="number" data-k="${k}" data-sf="fight" value="${esc(s.fight)}" min="1" max="10"></label>
       <label class="tog"><input type="checkbox" data-k="${k}" data-sf="banner" ${s.banner ? 'checked' : ''}> Banner nearby</label>
       <label class="tog"><input type="checkbox" data-k="${k}" data-sf="trapped" ${s.trapped ? 'checked' : ''}> Trapped (can't back away)</label>
@@ -168,69 +170,60 @@ function renderSide(k) {
 }
 
 const pct = v => (v * 100).toFixed(1) + '%';
-const enemyName = (k, j) => `${sideName(k)} ${fronts(k).length > 1 ? `model ${j + 1}` : 'model'}`;
+const enemyName = (k, j) => (fronts(other(k)).length > 1 ? `enemy model ${j + 1}` : 'the enemy model');
 
 function bars(k, r, idx) {
-  const o = other(k);
-  const rowsFor = (vs, j) => {
-    const W = vs.wounds, dist = vs.dist;
-    const rows = [];
-    for (let w = 0; w < W; w++) rows.push({ t: w === 0 ? 'Wins, no wounds' : `Wins, ${w} wound${w > 1 ? 's' : ''}`, v: dist[w], w });
-    rows.push({ t: 'Wins and kills', v: dist[W], w: W });
-    return rows;
-  };
-  const blocks = r.vs[idx].map(rowsFor);
   const lose = r.wins[1 - idx];
+  const blocks = r.vs[idx].map(vs => {
+    const rows = [];
+    for (let w = 0; w < vs.wounds; w++) rows.push({ t: w === 0 ? 'Wins, no wounds' : `Wins, ${w} wound${w > 1 ? 's' : ''}`, v: vs.dist[w], w });
+    rows.push({ t: 'Wins and kills', v: vs.dist[vs.wounds], w: vs.wounds });
+    return rows;
+  });
   const max = Math.max(lose, ...blocks.flat().map(x => x.v), 0.01);
   const bar = (x, tip = '') => `<div class="bar" title="${tip}"><span class="t">${esc(x.t)}</span>
       <div class="track"><div class="fill" style="width:${(x.v / max * 100).toFixed(2)}%"></div></div>
       <span class="v">${pct(x.v)}</span></div>`;
-  return `<h3>${esc(sideName(k))} attacking</h3>` + bar({ t: 'Loses the fight', v: lose }) +
-    blocks.map((rows, j) => {
-      const dist = r.vs[idx][j].dist;
-      const atLeast = w => dist.slice(w).reduce((a, b) => a + b, 0);
-      return `<div class="sub">All strikes at ${esc(enemyName(o, j))}</div>` +
-        rows.map(x => bar(x, `At least ${x.w || 0} wound${x.w === 1 ? '' : 's'}: ${pct(atLeast(x.w))}`)).join('');
-    }).join('');
+  return bar({ t: 'Loses the fight', v: lose }) + blocks.map((rows, j) => {
+    const dist = r.vs[idx][j].dist;
+    const atLeast = w => dist.slice(w).reduce((a, b) => a + b, 0);
+    return `<div class="sub">All strikes at ${enemyName(k, j)}</div>` +
+      rows.map(x => bar(x, `At least ${x.w || 0} wound${x.w === 1 ? '' : 's'}: ${pct(atLeast(x.w))}`)).join('');
+  }).join('');
 }
 
 function killTile(k, r, idx) {
-  const o = other(k), list = r.vs[idx];
-  if (list.length === 1) return `<div class="big">${pct(list[0].kill)}</div><div class="lab">${esc(sideName(k))} kills ${esc(enemyName(o, 0))}</div>`;
-  return `<div class="lab">${esc(sideName(k))} kills, if all strikes go at:</div>` +
-    list.map((v, j) => `<div class="kl">${esc(sideName(o))} model ${j + 1}: <b>${pct(v.kill)}</b></div>`).join('');
+  const list = r.vs[idx];
+  if (list.length === 1) return `<div class="big">${pct(list[0].kill)}</div><div class="lab">Kills the enemy model</div>`;
+  return `<div class="lab">Kills, if all strikes go at:</div>` +
+    list.map((v, j) => `<div class="kl">Enemy model ${j + 1}: <b>${pct(v.kill)}</b></div>`).join('');
 }
 
 function recompute() {
   const r = MESBG.calculate({ a: state.a, b: state.b });
   for (const [idx, k] of [[0, 'a'], [1, 'b']]) {
-    const o = other(k), many = fronts(o).length > 1;
+    const many = fronts(other(k)).length > 1;
     state[k].models.forEach((m, i) => {
       const el = document.querySelector(`[data-need="${k}-${i}"]`);
       if (!el) return;
       const needs = r.needs[idx][i];
       let txt = needs[0] === 'shielding' ? 'Shielding: makes no strikes.'
-        : many ? 'To wound: ' + needs.map((n, j) => `model ${j + 1} ${n}`).join(', ') : `To wound: ${needs[0]}`;
+        : many ? 'To wound: ' + needs.map((n, j) => `enemy model ${j + 1} ${n}`).join(', ') : `To wound: ${needs[0]}`;
       if (m.role === 'support') txt = 'Adds 1 die and 1 strike. Can\'t be hit. ' + txt;
       el.textContent = txt;
     });
+    document.getElementById(k === 'a' ? 'resA' : 'resB').innerHTML = `
+      <div class="tiles">
+        <div class="tile"><div class="big">${pct(r.wins[idx])}</div><div class="lab">Wins the fight</div></div>
+        <div class="tile">${killTile(k, r, idx)}</div>
+      </div>
+      <div class="bars">${bars(k, r, idx)}</div>
+      ${r.shieldBlocked[idx] ? '<div class="warn">Can\'t shield while a spear or pike supports this side, so shielding is ignored.</div>' : ''}`;
   }
-  const warn = [0, 1].filter(i => r.shieldBlocked[i]).map(i => `${esc(sideName(i ? 'b' : 'a'))} can't shield while a spear or pike supports it, so shielding is ignored.`);
-  document.getElementById('results').innerHTML = `
-    <div class="tiles">
-      <div class="tile" style="--c: var(--a)"><div class="big">${pct(r.wins[0])}</div><div class="lab">${esc(sideName('a'))} wins the fight</div></div>
-      <div class="tile" style="--c: var(--a)">${killTile('a', r, 0)}</div>
-      <div class="tile" style="--c: var(--b)"><div class="big">${pct(r.wins[1])}</div><div class="lab">${esc(sideName('b'))} wins the fight</div></div>
-      <div class="tile" style="--c: var(--b)">${killTile('b', r, 1)}</div>
-    </div>
-    <div class="split">
-      <div style="--c: var(--a)">${bars('a', r, 0)}</div>
-      <div style="--c: var(--b)">${bars('b', r, 1)}</div>
-    </div>
-    ${warn.map(w => `<div class="warn">${w}</div>`).join('')}
-    <div class="note">Top dice tied in ${pct(r.tieFight + r.tieRoll)} of fights: ${pct(r.tieFight)} settled by Fight, ${pct(r.tieRoll)} by a roll-off.
-      <button id="share" style="margin-left:8px">Copy link to this matchup</button>
-      <button id="reset">Reset</button></div>`;
+  document.getElementById('shared').innerHTML = `
+    Top dice tied in ${pct(r.tieFight + r.tieRoll)} of fights: ${pct(r.tieFight)} settled by Fight, ${pct(r.tieRoll)} by a roll-off.
+    <button id="share" style="margin-left:8px">Copy link to this matchup</button>
+    <button id="reset">Reset</button>`;
   const enc = btoa(unescape(encodeURIComponent(JSON.stringify(state))));
   history.replaceState(null, '', '#' + enc);
   localStorage.setItem('mesbg-calc', JSON.stringify(state));
