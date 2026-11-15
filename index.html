@@ -27,7 +27,7 @@
   .panel { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; }
   .side { border-top: 4px solid var(--c); }
   .side-head { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
-  .side-head input.sname { font-size: 18px; font-weight: 600; width: 6.5em; color: var(--c); }
+  .side-head .sname { font-size: 18px; font-weight: 600; margin-right: 6px; color: var(--c); }
   input, select, button { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
   input[type=number] { width: 3.6em; text-align: center; }
   input[type=checkbox], input[type=radio] { accent-color: var(--c); width: 16px; height: 16px; vertical-align: -3px; }
@@ -97,10 +97,10 @@
 const blank = (o = {}) => ({ role: 'front', attacks: 1, strength: 3, defence: 4, wounds: 1, fate: 0,
   duelMod: 0, woundMod: 0, twoHanded: false, shielding: false, elf: false, ...o });
 const DEFAULT = {
-  a: { name: 'Good', fight: 5, banner: false, trapped: false, models: [
+  a: { fight: 5, banner: false, trapped: false, models: [
     blank({ attacks: 2, strength: 4, defence: 6, wounds: 2, fate: 1 }),
     blank({ role: 'support', strength: 3 }) ] },
-  b: { name: 'Evil', fight: 3, banner: false, trapped: false, models: [
+  b: { fight: 3, banner: false, trapped: false, models: [
     blank({ strength: 3, defence: 5 }),
     blank({ strength: 3, defence: 4, twoHanded: true }) ] },
 };
@@ -115,7 +115,7 @@ for (const k of ['a', 'b']) { // a side always needs someone in front
 }
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-const sideName = k => state[k].name || (k === 'a' ? 'Side 1' : 'Side 2');
+const sideName = k => (k === 'a' ? 'Side 1' : 'Side 2');
 const other = k => (k === 'a' ? 'b' : 'a');
 // Front models get numbers ("model 1"); supports are listed after them.
 const fronts = k => state[k].models.map((m, i) => i).filter(i => state[k].models[i].role !== 'support');
@@ -154,7 +154,7 @@ function renderSide(k) {
   const el = document.getElementById(k === 'a' ? 'sideA' : 'sideB');
   el.innerHTML = `
     <div class="side-head">
-      <input class="sname" data-k="${k}" data-sf="name" value="${esc(s.name)}" aria-label="Side name">
+      <span class="sname">${sideName(k)}</span>
       <label class="stat" title="The highest Fight value of anyone in this fight">Fight<input type="number" data-k="${k}" data-sf="fight" value="${esc(s.fight)}" min="1" max="10"></label>
       <label class="tog"><input type="checkbox" data-k="${k}" data-sf="banner" ${s.banner ? 'checked' : ''}> Banner nearby</label>
       <label class="tog"><input type="checkbox" data-k="${k}" data-sf="trapped" ${s.trapped ? 'checked' : ''}> Trapped (can't back away)</label>
