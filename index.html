@@ -88,11 +88,11 @@
       <li>Each side rolls one die per Attack. Highest die wins. On a tie, the side with the higher Fight wins (each side uses the highest Fight among its models, including supporters). If Fight is also tied, roll off 50/50.</li>
       <li>Elf weapon: wins the roll-off on 1–4 instead of 1–3. Does nothing if both sides have one. A model that is shielding loses this.</li>
       <li>Two-handed weapon: −1 to each duel die unless it's a natural 6. +1 to wound, on both rolls when two are needed (6 then 4 becomes 5 then 3).</li>
-      <li>Shielding: the model rolls twice its Attacks in the duel but makes no strikes if its side wins. Not allowed while a spear or pike supports the side.</li>
-      <li>Spear or pike support: adds 1 die to the duel and 1 strike. Supporters can't be hit (the Monster exception isn't included yet).</li>
+      <li>Shielding: the model rolls twice its Attacks in the duel but makes no strikes if its side wins. Not allowed while the side has support.</li>
+      <li>Support (a spear or pike behind a frontline model): adds 1 die to the duel and 1 strike. Support can't be hit (the Monster exception isn't included yet).</li>
       <li>Banner: each side can re-roll one duel die once, and only does it when that improves its chance to win. With 2 or more dice it re-rolls a die that isn't its best, which can't hurt. With 1 die on a tie that goes to a roll-off, it weighs re-rolling against the roll-off (tied on 1–3: re-roll; on 4–6: keep and roll off; an elf weapon shifts this). If both sides could use a banner, a 50/50 coin decides who chooses first.</li>
       <li>Trapped / prone: if that side loses, the winners' strikes are doubled.</li>
-      <li>Strikes: the winning side's models strike in list order, top first, one strike at a time. Each strike goes at the top enemy model in front that's still alive, using the striker's Strength against that model's Defence. When it dies, the next strike goes at the next one down. Doubled strikes are rolled in pairs at the same target. Spear and pike supporters can't be hit. A roll of 1 always fails to wound.</li>
+      <li>Strikes: the winning side's models strike in list order, top first, one strike at a time. Each strike goes at the top enemy frontline that's still alive, using the striker's Strength against that model's Defence. When it dies, the next strike goes at the next one down. Doubled strikes are rolled in pairs at the same target. Support can't be hit. A roll of 1 always fails to wound.</li>
       <li>Fate: each wound can be saved on a 4+, one roll per Fate point, until the model runs out.</li>
       <li>Might is not included yet. All numbers are exact odds, worked out from every possible roll.</li>
     </ul>
@@ -123,7 +123,7 @@ for (const k of ['a', 'b']) { // a side always needs someone in front
 
 const esc = s => String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 const other = k => (k === 'a' ? 'b' : 'a');
-// Front models are numbered in list order ("model 1" is the top one).
+// Frontline models are numbered in list order ("Frontline 1" is the top one).
 const fronts = k => state[k].models.map((m, i) => i).filter(i => state[k].models[i].role !== 'support');
 const supports = k => state[k].models.map((m, i) => i).filter(i => state[k].models[i].role === 'support');
 
@@ -163,8 +163,8 @@ function card(k, i, title, canDelete) {
 function renderSide(k) {
   const s = state[k], F = fronts(k), P = supports(k);
   const title = i => s.models[i].role === 'support'
-    ? (P.length > 1 ? `Spear / pike support ${P.indexOf(i) + 1}` : 'Spear / pike support')
-    : (F.length > 1 ? `Model ${F.indexOf(i) + 1}` : 'Model');
+    ? (P.length > 1 ? `Support ${P.indexOf(i) + 1}` : 'Support')
+    : (F.length > 1 ? `Frontline ${F.indexOf(i) + 1}` : 'Frontline');
   const el = document.getElementById(k === 'a' ? 'sideA' : 'sideB');
   el.innerHTML = `
     <div class="side-head">
@@ -172,11 +172,11 @@ function renderSide(k) {
       <label class="tog"><input type="checkbox" data-k="${k}" data-sf="banner" ${s.banner ? 'checked' : ''}> Banner nearby</label>
       <label class="tog"><input type="checkbox" data-k="${k}" data-sf="trapped" ${s.trapped ? 'checked' : ''}> Trapped / prone</label>
     </div>
-    <div class="hint">Order matters: if this side wins, its models strike top to bottom. If it loses, the enemy hits the top model first.</div>
+    <div class="hint">Order matters: if this side wins, its models strike top to bottom. If it loses, the enemy hits the top frontline first.</div>
     ${s.models.map((m, i) => card(k, i, title(i), m.role === 'support' || F.length > 1)).join('')}
     <div class="row">
-      <button data-k="${k}" data-add="front">+ Add model</button>
-      <button data-k="${k}" data-add="support">+ Add spear / pike support</button>
+      <button data-k="${k}" data-add="front">+ Add frontline</button>
+      <button data-k="${k}" data-add="support">+ Add support</button>
     </div>`;
 }
 
@@ -192,11 +192,11 @@ function bars(k, r, idx) {
     rows.push({ t: 'Wins and kills', v: d[W] });
   } else {
     st.killsDist.forEach((v, n) => rows.push({ t: n === 0 ? 'Wins, kills none' : n === nT ? `Wins, kills all ${nT}` : `Wins, kills ${n}`, v }));
-    rows.push({ head: 'Each enemy model' });
+    rows.push({ head: 'Each enemy frontline' });
     st.perTarget.forEach((d, j) => {
       const W = d.length - 1;
-      for (let w = 1; w < W; w++) rows.push({ t: `Model ${j + 1} takes ${w} wound${w > 1 ? "s" : ""}`, v: d[w] });
-      rows.push({ t: `Model ${j + 1} dies`, v: d[W] });
+      for (let w = 1; w < W; w++) rows.push({ t: `Frontline ${j + 1} takes ${w} wound${w > 1 ? "s" : ""}`, v: d[w] });
+      rows.push({ t: `Frontline ${j + 1} dies`, v: d[W] });
     });
   }
   const max = Math.max(...rows.filter(x => !x.head).map(x => x.v), 0.01);
@@ -208,9 +208,9 @@ function bars(k, r, idx) {
 
 function killTile(k, r, idx) {
   const st = r.strikes[idx];
-  if (st.perTarget.length === 1) return `<div class="big">${pct(st.killsDist[1])}</div><div class="lab">Kills the enemy model</div>`;
+  if (st.perTarget.length === 1) return `<div class="big">${pct(st.killsDist[1])}</div><div class="lab">Kills the enemy frontline</div>`;
   const some = st.killsDist.slice(1).reduce((a, b) => a + b, 0);
-  return `<div class="big">${pct(some)}</div><div class="lab">Kills at least one enemy model</div>`;
+  return `<div class="big">${pct(some)}</div><div class="lab">Kills at least one enemy frontline</div>`;
 }
 
 function render(r) {
@@ -221,7 +221,7 @@ function render(r) {
       if (!el || !r.needs[idx][i]) return;
       const needs = r.needs[idx][i];
       let txt = needs[0] === 'shielding' ? 'Shielding: makes no strikes.'
-        : many ? 'To wound: ' + needs.map((n, j) => `enemy model ${j + 1} ${n}`).join(', ') : `To wound: ${needs[0]}`;
+        : many ? 'To wound: ' + needs.map((n, j) => `enemy frontline ${j + 1} ${n}`).join(', ') : `To wound: ${needs[0]}`;
       if (m.role === 'support') txt = 'Adds 1 die and 1 strike. Can\'t be hit. ' + txt;
       el.textContent = txt;
     });
@@ -231,7 +231,7 @@ function render(r) {
         <div class="tile">${killTile(k, r, idx)}</div>
       </div>
       <div class="bars">${bars(k, r, idx)}</div>
-      ${r.shieldBlocked[idx] ? '<div class="warn">Can\'t shield while a spear or pike supports this side, so shielding is ignored.</div>' : ''}`;
+      ${r.shieldBlocked[idx] ? '<div class="warn">Can\'t shield while this side has support, so shielding is ignored.</div>' : ''}`;
   }
   document.getElementById('shared').innerHTML = `
     Top dice tied in ${pct(r.tieFight + r.tieRoll)} of fights: ${pct(r.tieFight)} settled by Fight, ${pct(r.tieRoll)} by a roll-off.
