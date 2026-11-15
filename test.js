@@ -111,4 +111,8 @@ check('wound chart S1 vs D9 = none', +(woundNeed(1, 9) === null), 1, 0);
   }
   check('40 random matchups: biggest gap to simulator', worst, 0, 0.006);
 }
+// Side-level Fight overrides per-model Fight
+{ const r2 = calculate({ a: { models: [M({ fight: 3 })], fight: 6 }, b: { models: [M({ fight: 5 })], fight: 4 } });
+  const d2 = duel(1, 1);
+  check('side Fight value used for ties', r2.wins[0], d2.win + d2.tie); }
 console.log(fails ? `${fails} FAILED` : 'all passed');

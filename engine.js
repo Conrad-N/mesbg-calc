@@ -52,7 +52,8 @@
     const target = front[clamp(num(side.target), 0, Math.max(0, front.length - 1))] || models[0];
     return {
       models, front: front.length ? front : [models[0]], target, trapped: !!side.trapped, banner: !!side.banner,
-      fight: Math.max(...models.map(m => m.fight)),
+      // One Fight value per side (the highest anyone has). Older inputs give it per model.
+      fight: side.fight !== undefined && side.fight !== '' ? num(side.fight, 3) : Math.max(...models.map(m => m.fight)),
       elf: models.some(m => m.elf && !m.shielding), // shielding loses the elf tie-break
     };
   }
